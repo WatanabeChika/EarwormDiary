@@ -11,7 +11,9 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,12 +31,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -57,6 +60,17 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.earwormdiary.data.local.CategoryStorage
+import com.example.earwormdiary.data.local.RecordStorage
+import com.example.earwormdiary.data.model.Category
+import com.example.earwormdiary.data.model.DailyRecord
+import com.example.earwormdiary.ui.screens.CalendarScreen
+import com.example.earwormdiary.ui.screens.CategoryManagementScreen
+import com.example.earwormdiary.ui.screens.DataBackupScreen
+import com.example.earwormdiary.ui.screens.LibrarySettingsScreen
+import com.example.earwormdiary.ui.screens.SettingsMenuScreen
+import com.example.earwormdiary.ui.screens.SongSelectionView
+import com.example.earwormdiary.ui.screens.TodayScreen
 import java.time.LocalDate
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
@@ -98,6 +112,13 @@ fun AppEntry() {
         prefs.edit { putStringSet("folder_uris", newUris.map { it.toString() }.toSet()) }
     }
 
+    var categories by remember { mutableStateOf(CategoryStorage.loadCategories(context)) }
+
+    fun updateCategories(newCategories: List<Category>) {
+        categories = newCategories
+        CategoryStorage.saveCategories(context, newCategories)
+    }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination?.route
     val showBottomBar = currentDestination == "today" || currentDestination == "calendar"
@@ -106,6 +127,9 @@ fun AppEntry() {
         currentDestination == "today" -> "今日旋律"
         currentDestination == "calendar" -> "耳虫日历"
         currentDestination == "settings" -> "设置"
+        currentDestination == "settings/library" -> "音乐库管理"
+        currentDestination == "settings/category" -> "类别管理"
+        currentDestination == "settings/backup" -> "数据备份与恢复"
         currentDestination?.startsWith("selection") == true -> "选择歌曲"
         else -> "Daily Music"
     }
@@ -120,7 +144,14 @@ fun AppEntry() {
                         titleContentColor = MaterialTheme.colorScheme.primary
                     ),
                     navigationIcon = {
-                        if (currentDestination == "settings") {
+                        // 如果是设置及其子页面，显示返回箭头
+                        if (currentDestination == "settings/library" ||
+                            currentDestination == "settings/backup" ||
+                            currentDestination == "settings/category") {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            }
+                        } else if (currentDestination == "settings") {
                             IconButton(onClick = { navController.popBackStack() }) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                             }
@@ -129,7 +160,7 @@ fun AppEntry() {
                     actions = {
                         if (showBottomBar) {
                             IconButton(onClick = { navController.navigateSingle("settings") }) {
-                                Icon(Icons.Default.Storage, contentDescription = "音乐库")
+                                Icon(Icons.Default.Settings, contentDescription = "设置")
                             }
                         }
                     }
@@ -175,12 +206,17 @@ fun AppEntry() {
                 )) {
                     TodayScreen(
                         records = records,
+                        categories = categories,
                         onNavigateToSearch = {
                             val today = LocalDate.now().toString()
                             navController.navigateSingle("selection/$today")
                         },
                         onRemoveRecord = {
                             records.remove(LocalDate.now())
+                            save()
+                        },
+                        onUpdateRecord = { updatedRecord ->
+                            records[updatedRecord.date] = updatedRecord
                             save()
                         }
                     )
@@ -208,6 +244,7 @@ fun AppEntry() {
                 )) {
                     CalendarScreen(
                         records = records,
+                        categories = categories,
                         selectedDate = calendarSelectedDate,
                         onDateSelected = { calendarSelectedDate = it },
                         onDayClick = { date -> navController.navigateSingle("selection/$date") },
@@ -218,32 +255,160 @@ fun AppEntry() {
                         onCopyRecord = { sourceDate, targetDate ->
                             val sourceRecord = records[sourceDate]
                             if (sourceRecord != null) {
-                                records[targetDate] = DailyRecord(targetDate, sourceRecord.song)
+                                records[targetDate] = sourceRecord.copy(date = targetDate)
                                 save()
                             }
+                        },
+                        onUpdateRecord = { updatedRecord ->
+                            records[updatedRecord.date] = updatedRecord
+                            save()
                         }
                     )
                 }
             }
 
-            // ================== 设置页面 (Settings/Library) ==================
+            // ================== 设置主菜单 ==================
             composable(
                 route = "settings",
                 enterTransition = {
                     slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
                 },
                 exitTransition = {
-                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    val targetRoute = targetState.destination.route
+                    if (targetRoute?.startsWith("settings/") == true) {
+                        ExitTransition.None
+                    } else {
+                        slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    }
+                },
+                popEnterTransition = {
+                    val initialRoute = initialState.destination.route
+                    if (initialRoute?.startsWith("settings/") == true) {
+                        EnterTransition.None
+                    } else {
+                        slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
+                    }
                 }
             ) {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onHorizontalSwipe(onSwipeRight = { navController.popBackStack() }),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    SettingsScreen(
+                    SettingsMenuScreen(
+                        onNavigateToLibrary = { navController.navigate("settings/library") },
+                        onNavigateToCategory = { navController.navigate("settings/category") },
+                        onNavigateToBackup = { navController.navigate("settings/backup") }
+                    )
+                }
+            }
+
+            // ================== 设置/音乐库 (子菜单) ==================
+            composable(
+                route = "settings/library",
+                enterTransition = {
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(300)
+                    )
+                },
+                exitTransition = {
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(300)
+                    )
+                }
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .shadow(elevation = 16.dp)
+                        .onHorizontalSwipe(onSwipeRight = { navController.popBackStack() }),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    LibrarySettingsScreen(
                         folderUris = folderUris,
-                        onAddFolder = { uri -> if (!folderUris.contains(uri)) updateFolders(folderUris + uri) },
-                        onRemoveFolder = { uri -> updateFolders(folderUris - uri) }
+                        records = records,
+                        onAddFolder = { uri ->
+                            if (!folderUris.contains(uri)) updateFolders(
+                                folderUris + uri
+                            )
+                        },
+                        onRemoveFolder = { uri -> updateFolders(folderUris - uri) },
+                        onRecordsUpdated = { updatedRecords ->
+                            records.clear()
+                            records.putAll(updatedRecords)
+                            save()
+                        }
+                    )
+                }
+            }
+
+            // ================== 设置/导出 (子菜单) ==================
+            composable(
+                route = "settings/backup",
+                enterTransition = {
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(300)
+                    )
+                },
+                exitTransition = {
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(300)
+                    )
+                }
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .shadow(elevation = 16.dp)
+                        .onHorizontalSwipe(onSwipeRight = { navController.popBackStack() }),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    DataBackupScreen(
+                        records = records,
+                        categories = categories,
+                        onImportRecords = { newRecords ->
+                            // 合并数据：将导入的记录 put 到现有 map 中
+                            records.putAll(newRecords)
+                            save()
+                        },
+                        onCategoriesChanged = { newCategories ->
+                            updateCategories(newCategories)
+                        }
+                    )
+                }
+            }
+
+            // ================== 设置/类别管理 ==================
+            composable(
+                route = "settings/category",
+                enterTransition = {
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(300)
+                    )
+                },
+                exitTransition = {
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(300)
+                    )
+                }
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .shadow(elevation = 16.dp)
+                        .onHorizontalSwipe(onSwipeRight = { navController.popBackStack() }),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    CategoryManagementScreen(
+                        categories = categories,
+                        onCategoriesChanged = { updateCategories(it) }
                     )
                 }
             }

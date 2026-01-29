@@ -1,9 +1,10 @@
-package com.example.earwormdiary
+package com.example.earwormdiary.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -12,50 +13,73 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.earwormdiary.ui.components.AlbumCover
+import com.example.earwormdiary.ui.components.CategorySelectionDialog
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
 fun TodayScreen(
-    records: Map<LocalDate, DailyRecord>,
+    records: Map<LocalDate, com.example.earwormdiary.data.model.DailyRecord>,
+    categories: List<com.example.earwormdiary.data.model.Category>,
     onNavigateToSearch: () -> Unit,
-    onRemoveRecord: () -> Unit
+    onRemoveRecord: () -> Unit,
+    onUpdateRecord: (com.example.earwormdiary.data.model.DailyRecord) -> Unit
 ) {
     val today = LocalDate.now()
     val record = records[today]
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
+    var showCategoryDialog by remember { mutableStateOf(false) }
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (record != null) {
             TodayDetailView(
                 record = record,
+                categories = categories,
                 onEditClick = onNavigateToSearch,
-                onRemoveClick = onRemoveRecord
+                onRemoveClick = onRemoveRecord,
+                onCategoryClick = { showCategoryDialog = true }
             )
         } else {
             TodayEmptyView(onAddClick = onNavigateToSearch)
         }
     }
+
+    if (showCategoryDialog && record != null) {
+        CategorySelectionDialog(
+            categories = categories,
+            currentCategoryId = record.categoryId,
+            onCategorySelected = { newCategoryId ->
+                onUpdateRecord(record.copy(categoryId = newCategoryId))
+                showCategoryDialog = false
+            },
+            onDismissRequest = { showCategoryDialog = false }
+        )
+    }
 }
 
 @Composable
 fun TodayDetailView(
-    record: DailyRecord,
+    record: com.example.earwormdiary.data.model.DailyRecord,
+    categories: List<com.example.earwormdiary.data.model.Category>,
     onEditClick: () -> Unit,
-    onRemoveClick: () -> Unit
+    onRemoveClick: () -> Unit,
+    onCategoryClick: () -> Unit
 ) {
     val dateText = record.date.format(DateTimeFormatter.ofPattern("M月d日"))
+    val currentCategory = categories.find { it.id == record.categoryId }
 
     Column(
         modifier = Modifier
@@ -63,34 +87,24 @@ fun TodayDetailView(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 上半部分内容区域
         Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
             SelectionContainer {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    // 1. 日期
                     Text(
                         text = dateText,
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        ),
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // 2. 封面
                     Card(
                         modifier = Modifier
                             .fillMaxWidth(0.75f)
@@ -106,7 +120,6 @@ fun TodayDetailView(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // 3. 歌名
                     Text(
                         text = record.song.title,
                         style = MaterialTheme.typography.headlineSmall,
@@ -116,7 +129,6 @@ fun TodayDetailView(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // 4. 歌手
                     Text(
                         text = record.song.artist,
                         style = MaterialTheme.typography.titleMedium,
@@ -124,37 +136,70 @@ fun TodayDetailView(
                         textAlign = TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    // 分类标签逻辑
+                    // 只有当歌曲不是“无”的时候，才显示分类操作区
+                    if (!record.song.isNone) {
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val backgroundColor = if (currentCategory != null) {
+                            getCategoryColor(
+                                currentCategory.id
+                            ).copy(alpha = 0.2f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        }
+
+                        val textColor = if (currentCategory != null) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+
+                        val labelText = currentCategory?.name ?: "+  点击添加分类"
+
+                        Surface(
+                            color = backgroundColor,
+                            shape = RoundedCornerShape(50),
+                            onClick = onCategoryClick
+                        ) {
+                            Text(
+                                text = labelText,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = textColor
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // 底部按钮区域
+        // 底部按钮栏
         Row(
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .padding(bottom = 16.dp),
+            modifier = Modifier.fillMaxWidth(0.8f).padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // 1. 删除
             Button(
                 onClick = onRemoveClick,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                )
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                contentPadding = PaddingValues(0.dp)
             ) {
                 Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Text("删除")
             }
 
+
+            // 2. 更换
             Button(
                 onClick = onEditClick,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(0.dp)
             ) {
                 Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Text("更换")
             }
         }

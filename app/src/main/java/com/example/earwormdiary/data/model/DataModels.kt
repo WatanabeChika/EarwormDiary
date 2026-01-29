@@ -1,4 +1,4 @@
-package com.example.earwormdiary
+package com.example.earwormdiary.data.model
 
 import android.net.Uri
 import java.time.LocalDate
@@ -50,5 +50,11 @@ data class LocalSong(
 
 data class DailyRecord(
     val date: LocalDate,
-    val song: LocalSong
+    val song: LocalSong,
+    val categoryId: String? = null
+)
+
+data class Category(
+    val id: String,
+    val name: String
 )

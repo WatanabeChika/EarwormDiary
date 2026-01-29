@@ -1,4 +1,4 @@
-package com.example.earwormdiary
+package com.example.earwormdiary.ui.screens
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -12,6 +12,8 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,17 +33,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import com.example.earwormdiary.data.model.Category
+import com.example.earwormdiary.data.model.DailyRecord
+import com.example.earwormdiary.ui.components.AlbumCover
+import com.example.earwormdiary.ui.components.CategorySelectionDialog
 
 @Composable
 fun CalendarScreen(
     records: Map<LocalDate, DailyRecord>,
+    categories: List<Category>,
     selectedDate: LocalDate,
     onDateSelected: (LocalDate) -> Unit,
     onDayClick: (LocalDate) -> Unit,
     onRemoveRecord: (LocalDate) -> Unit,
-    onCopyRecord: (LocalDate, LocalDate) -> Unit
+    onCopyRecord: (LocalDate, LocalDate) -> Unit,
+    onUpdateRecord: (DailyRecord) -> Unit
 ) {
-    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    var currentMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     var showDatePicker by remember { mutableStateOf(false) }
 
     if (showDatePicker) {
@@ -102,8 +110,15 @@ fun CalendarScreen(
         DetailArea(
             date = selectedDate,
             record = records[selectedDate],
+            categories = categories,
             onEditClick = { onDayClick(selectedDate) },
-            onRemoveClick = { onRemoveRecord(selectedDate) }
+            onRemoveClick = { onRemoveRecord(selectedDate) },
+            onUpdateCategory = { newCategoryId ->
+                val record = records[selectedDate]
+                if (record != null) {
+                    onUpdateRecord(record.copy(categoryId = newCategoryId))
+                }
+            }
         )
         Spacer(modifier = Modifier.height(40.dp))
     }
@@ -118,12 +133,14 @@ fun MonthHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = { onMonthChange(currentMonth.minusMonths(1)) }) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Prev")
+            Icon(Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Prev",
+                modifier = Modifier.size(20.dp))
         }
 
         Surface(
@@ -132,19 +149,21 @@ fun MonthHeader(
             color = Color.Transparent
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "${currentMonth.year}年 ${currentMonth.monthValue}月",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
 
         IconButton(onClick = { onMonthChange(currentMonth.plusMonths(1)) }) {
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next")
+            Icon(Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = "Next",
+                modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -417,7 +436,10 @@ fun ManualCalendarGrid(
                     .clip(MaterialTheme.shapes.medium)
                     .alpha(0.9f)
             ) {
-                AlbumCover(song = draggedRecord!!.song, modifier = Modifier.fillMaxSize())
+                AlbumCover(
+                    song = draggedRecord!!.song,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
@@ -469,7 +491,10 @@ fun DayCellUpdated(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (record != null) {
-                AlbumCover(song = record.song, modifier = Modifier.fillMaxSize())
+                AlbumCover(
+                    song = record.song,
+                    modifier = Modifier.fillMaxSize()
+                )
             } else {
                 Text(
                     text = "$day",
@@ -491,17 +516,34 @@ fun DayCellUpdated(
 fun DetailArea(
     date: LocalDate,
     record: DailyRecord?,
+    categories: List<Category>,
     onEditClick: () -> Unit,
-    onRemoveClick: () -> Unit
+    onRemoveClick: () -> Unit,
+    onUpdateCategory: (String?) -> Unit
 ) {
+    var showCategoryDialog by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         if (record != null) {
+            val currentCategory = categories.find { it.id == record.categoryId }
+
+            // ================== 第一行：封面 + 信息 ==================
             Row(verticalAlignment = Alignment.Top) {
-                Card(modifier = Modifier.size(120.dp), elevation = CardDefaults.cardElevation(4.dp), shape = MaterialTheme.shapes.medium) {
-                    AlbumCover(song = record.song, modifier = Modifier.fillMaxSize())
+                // 左列：封面
+                Card(
+                    modifier = Modifier.size(120.dp),
+                    elevation = CardDefaults.cardElevation(4.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    AlbumCover(
+                        song = record.song,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
+
                 Spacer(modifier = Modifier.width(16.dp))
 
+                // 右列：纯文本信息 + 分类标签
                 Column(modifier = Modifier.weight(1f)) {
                     SelectionContainer {
                         Column {
@@ -510,33 +552,93 @@ fun DetailArea(
                             Text(text = "歌手: ${record.song.artist}", style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(text = "日期: $date", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                        }
-                    }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                            // 分类标签
+                            if (!record.song.isNone) {
+                                Spacer(modifier = Modifier.height(4.dp))
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = onRemoveClick,
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError
-                            ),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Text("删除")
-                        }
-                        Button(
-                            onClick = onEditClick,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Text("更换")
+                                val backgroundColor = if (currentCategory != null) {
+                                    getCategoryColor(
+                                        currentCategory.id
+                                    ).copy(alpha = 0.2f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                }
+
+                                val labelText = currentCategory?.name ?: "+ 点击添加分类"
+
+                                Surface(
+                                    color = backgroundColor,
+                                    shape = RoundedCornerShape(50),
+                                    onClick = { showCategoryDialog = true }
+                                ) {
+                                    Text(
+                                        text = labelText,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // ================== 第二行：操作按钮 ==================
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // 删除按钮
+                Button(
+                    onClick = onRemoveClick,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("删除")
+                }
+
+                // 更换按钮
+                Button(
+                    onClick = onEditClick,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("更换")
+                }
+            }
+
+            if (showCategoryDialog) {
+                CategorySelectionDialog(
+                    categories = categories,
+                    currentCategoryId = record.categoryId,
+                    onCategorySelected = {
+                        onUpdateCategory(it)
+                        showCategoryDialog = false
+                    },
+                    onDismissRequest = { showCategoryDialog = false }
+                )
+            }
+
         } else {
             Column(modifier = Modifier.fillMaxWidth().border(width = 2.dp, color = Color.LightGray, shape = MaterialTheme.shapes.medium).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(text = "未找到耳虫捕获记录", style = MaterialTheme.typography.titleMedium, color = Color.Gray)

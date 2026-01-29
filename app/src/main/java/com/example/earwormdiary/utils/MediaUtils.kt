@@ -1,7 +1,6 @@
-package com.example.earwormdiary
+package com.example.earwormdiary.utils
 
 import android.content.Context
-import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -11,6 +10,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import androidx.core.net.toUri
+import com.example.earwormdiary.data.model.LocalSong
 
 private const val CACHE_FILE_NAME = "music_index_cache.txt"
 private const val TAG = "MusicIndex"
@@ -207,14 +207,6 @@ suspend fun loadMusicFromCache(context: Context): List<LocalSong> {
         } catch (e: Exception) { e.printStackTrace() }
         list
     }
-}
-
-fun persistUriPermission(context: Context, uri: Uri) {
-    val contentResolver = context.contentResolver
-    val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-    try {
-        contentResolver.takePersistableUriPermission(uri, takeFlags)
-    } catch (e: Exception) { e.printStackTrace() }
 }
 
 private fun isAudioFile(name: String): Boolean {
