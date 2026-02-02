@@ -2,6 +2,7 @@ package com.example.earwormdiary.ui.screens
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import com.example.earwormdiary.data.model.Category
@@ -91,7 +93,10 @@ fun CalendarScreen(
                     records = records,
                     selectedDate = selectedDate,
                     onDateSelected = onDateSelected,
-                    onCopyRecord = onCopyRecord
+                    onCopyRecord = onCopyRecord,
+                    onMonthSwipe = { direction ->
+                        currentMonth = currentMonth.plusMonths(direction.toLong())
+                    }
                 )
             }
         }
@@ -313,7 +318,8 @@ fun ManualCalendarGrid(
     records: Map<LocalDate, DailyRecord>,
     selectedDate: LocalDate,
     onDateSelected: (LocalDate) -> Unit,
-    onCopyRecord: (LocalDate, LocalDate) -> Unit
+    onCopyRecord: (LocalDate, LocalDate) -> Unit,
+    onMonthSwipe: (Int) -> Unit
 ) {
     val rows = remember(currentMonth) {
         val daysInMonth = currentMonth.lengthOfMonth()
@@ -329,6 +335,10 @@ fun ManualCalendarGrid(
     var dragStartDay by remember { mutableStateOf<Int?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var draggedRecord by remember { mutableStateOf<DailyRecord?>(null) }
+
+    val density = LocalDensity.current
+    val swipeThreshold = with(density) { 50.dp.toPx() } // 滑动阈值
+    var swipeTotalX by remember { mutableFloatStateOf(0f) }
 
     fun getDayFromOffset(offset: Offset): Int? {
         if (gridSize.width == 0 || gridSize.height == 0) return null
@@ -352,6 +362,24 @@ fun ManualCalendarGrid(
             modifier = Modifier
                 .fillMaxWidth()
                 .onGloballyPositioned { gridSize = it.size }
+                // 月份切换手势监听
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (swipeTotalX > swipeThreshold) {
+                                onMonthSwipe(-1)
+                            } else if (swipeTotalX < -swipeThreshold) {
+                                onMonthSwipe(1)
+                            }
+                            swipeTotalX = 0f
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            // 消费掉事件，阻止事件向上传递给 MainActivity 的页面切换逻辑
+                            change.consume()
+                            swipeTotalX += dragAmount
+                        }
+                    )
+                }
                 .pointerInput(currentMonth, records) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { offset ->

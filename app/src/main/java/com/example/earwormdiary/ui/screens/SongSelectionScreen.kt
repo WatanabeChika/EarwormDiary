@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.example.earwormdiary.data.network.NeteaseApi
 import com.example.earwormdiary.ui.components.AlbumCover
 import com.example.earwormdiary.utils.loadMusicFromCache
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 @Composable
@@ -35,19 +37,18 @@ fun SongSelectionView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 本地数据
     var allSongs by remember { mutableStateOf<List<com.example.earwormdiary.data.model.LocalSong>>(emptyList()) }
     var filteredSongs by remember { mutableStateOf<List<com.example.earwormdiary.data.model.LocalSong>>(emptyList()) }
 
-    // 网络数据
     var networkSongs by remember { mutableStateOf<List<com.example.earwormdiary.data.model.LocalSong>>(emptyList()) }
     var isSearchingNetwork by remember { mutableStateOf(false) }
     var hasSearchedNetwork by remember { mutableStateOf(false) }
 
+    var idSearchResultId by remember { mutableStateOf<Long?>(null) }
+
     var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
 
-    // 初始化加载本地
     LaunchedEffect(Unit) {
         isLoading = true
         try {
@@ -60,10 +61,10 @@ fun SongSelectionView(
         }
     }
 
-    // 搜索框变化时：过滤本地 + 重置网络状态
     LaunchedEffect(searchQuery, allSongs) {
         hasSearchedNetwork = false
         networkSongs = emptyList()
+        idSearchResultId = null
 
         filteredSongs = if (searchQuery.isBlank()) {
             allSongs
@@ -75,25 +76,44 @@ fun SongSelectionView(
         }
     }
 
-    // 执行网络搜索
     fun performNetworkSearch() {
         if (searchQuery.isBlank()) return
 
         isSearchingNetwork = true
+        idSearchResultId = null
+
         scope.launch {
-            val results = NeteaseApi.searchOnline(searchQuery)
-            networkSongs = results
+            // 检查是否是纯数字 ID
+            val isNumericId = searchQuery.all { it.isDigit() }
+
+            // 使用 async 并发执行，提高速度
+            val searchDeferred = async { NeteaseApi.searchOnline(searchQuery) }
+            val idDeferred = if (isNumericId) async { NeteaseApi.getSongDetail(searchQuery) } else null
+
+            val searchResults = searchDeferred.await().toMutableList()
+            val idResult = idDeferred?.await()
+
+            // 如果 ID 搜索有结果，将其置顶
+            if (idResult != null) {
+                // 移除搜索结果中可能存在的重复项
+                searchResults.removeIf { it.id == idResult.id }
+                // 插入到第一位
+                searchResults.add(0, idResult)
+                // 记录 ID 以便 UI 渲染时高亮
+                idSearchResultId = idResult.id
+            }
+
+            networkSongs = searchResults
             isSearchingNetwork = false
             hasSearchedNetwork = true
 
-            if (results.isEmpty()) {
+            if (networkSongs.isEmpty()) {
                 Toast.makeText(context, "未找到相关网络歌曲", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        // 顶部栏
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 16.dp)
@@ -110,7 +130,6 @@ fun SongSelectionView(
             )
         }
 
-        // 搜索框
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -131,7 +150,7 @@ fun SongSelectionView(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    // 1. “无”选项
+                    // 1. & 2. (无选项 和 纯文字选项)
                     item(key = "special_none") {
                         SongListItem(
                             song = com.example.earwormdiary.data.model.LocalSong.createNone(),
@@ -139,7 +158,6 @@ fun SongSelectionView(
                         )
                     }
 
-                    // 2. “纯文字”选项
                     if (searchQuery.isNotBlank()) {
                         item(key = "special_text_${searchQuery}") {
                             val textSong = com.example.earwormdiary.data.model.LocalSong.createText(searchQuery)
@@ -208,9 +226,39 @@ fun SongSelectionView(
                             item {
                                 Text("网络结果 (网易云音乐)", style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp))
                             }
-                            // 网络歌曲 ID 为了防重可以加前缀，但 LazyColumn key 只要唯一即可
+
                             items(networkSongs, key = { "net_${it.id}" }) { song ->
-                                SongListItem(song = song, onClick = { onSongSelected(song) })
+                                // 判断是否是 ID 精确匹配的结果，如果是，显示特殊标签
+                                val isIdMatch = idSearchResultId == song.id
+
+                                Column {
+                                    if (isIdMatch) {
+                                        // ID 匹配指示器
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Link,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "ID 精确匹配: ${song.id}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+
+                                    SongListItem(
+                                        song = song,
+                                        onClick = { onSongSelected(song) },
+                                        backgroundColor = if (isIdMatch) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else Color.Transparent
+                                    )
+                                }
                             }
                         }
                     }
@@ -220,11 +268,16 @@ fun SongSelectionView(
     }
 }
 
+// SongListItem 增加 backgroundColor 参数以支持高亮
 @Composable
-fun SongListItem(song: com.example.earwormdiary.data.model.LocalSong, onClick: () -> Unit) {
+fun SongListItem(
+    song: com.example.earwormdiary.data.model.LocalSong,
+    onClick: () -> Unit,
+    backgroundColor: Color = Color.Transparent
+) {
     Surface(
         onClick = onClick,
-        color = Color.Transparent,
+        color = backgroundColor,
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(

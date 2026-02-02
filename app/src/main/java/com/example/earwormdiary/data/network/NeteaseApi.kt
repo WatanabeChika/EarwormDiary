@@ -11,6 +11,44 @@ import java.net.URLEncoder
 
 object NeteaseApi {
     private const val SEARCH_API = "https://music.163.com/api/cloudsearch/pc"
+    private const val DETAIL_API = "https://music.163.com/api/song/detail"
+
+    // 根据 ID 获取单曲详情
+    suspend fun getSongDetail(id: String): LocalSong? = withContext(Dispatchers.IO) {
+        try {
+            // 构建请求参数: id=xxx&ids=[xxx]
+            val urlString = "$DETAIL_API?id=$id&ids=[$id]"
+            val url = URL(urlString)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+
+            // 伪装 User-Agent
+            conn.setRequestProperty(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            conn.setRequestProperty("Referer", "https://music.163.com/")
+            conn.setRequestProperty("Cookie", "os=pc")
+
+            if (conn.responseCode == 200) {
+                val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
+                val jsonObj = JSONObject(jsonStr)
+
+                if (jsonObj.optInt("code") == 200 && jsonObj.has("songs")) {
+                    val songs = jsonObj.getJSONArray("songs")
+                    if (songs.length() > 0) {
+                        // 复用解析逻辑
+                        return@withContext parseSongJsonObject(songs.getJSONObject(0))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext null
+    }
 
     suspend fun searchOnline(keyword: String): List<LocalSong> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalSong>()
@@ -26,7 +64,6 @@ object NeteaseApi {
             conn.connectTimeout = 5000
             conn.readTimeout = 5000
 
-            // 伪装 User-Agent 防止被反爬拦截
             conn.setRequestProperty(
                 "User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -38,7 +75,6 @@ object NeteaseApi {
                 val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
                 val jsonObj = JSONObject(jsonStr)
 
-                // 错误检查
                 val code = jsonObj.optInt("code")
                 if (code != 200) {
                     return@withContext list
@@ -46,59 +82,14 @@ object NeteaseApi {
 
                 if (jsonObj.has("result") && !jsonObj.isNull("result")) {
                     val result = jsonObj.getJSONObject("result")
-
                     if (result.has("songs")) {
                         val songs = result.getJSONArray("songs")
-
                         for (i in 0 until songs.length()) {
                             try {
-                                val item = songs.getJSONObject(i)
-                                val id = item.getLong("id")
-                                val name = item.getString("name")
-
-                                var artistName = "Unknown"
-                                if (item.has("ar")) {
-                                    val artists = item.getJSONArray("ar")
-                                    if (artists.length() > 0) {
-                                        artistName = artists.getJSONObject(0).getString("name")
-                                    }
-                                } else if (item.has("artists")) {
-                                    val artists = item.getJSONArray("artists")
-                                    if (artists.length() > 0) {
-                                        artistName = artists.getJSONObject(0).getString("name")
-                                    }
-                                }
-
-                                var picUrl = ""
-                                if (item.has("al")) {
-                                    val album = item.getJSONObject("al")
-                                    picUrl = album.optString("picUrl", "")
-                                } else if (item.has("album")) {
-                                    val album = item.getJSONObject("album")
-                                    picUrl = album.optString("picUrl", "")
-                                }
-
-                                // 强制将 http 替换为 https 以适配 Android 9+ 安全策略
-                                if (picUrl.startsWith("http://")) {
-                                    picUrl = picUrl.replace("http://", "https://")
-                                }
-
-                                val musicUrl =
-                                    "http://music.163.com/song/media/outer/url?id=$id.mp3"
-
-                                list.add(
-                                    LocalSong(
-                                        id = id,
-                                        title = name,
-                                        artist = artistName,
-                                        albumId = 0,
-                                        uri = musicUrl.toUri(),
-                                        albumArtUri = picUrl.toUri(),
-                                        lastModified = System.currentTimeMillis()
-                                    )
-                                )
+                                val song = parseSongJsonObject(songs.getJSONObject(i))
+                                list.add(song)
                             } catch (e: Exception) {
-                                // 忽略单个解析失败，继续解析下一个
+                                // ignore
                             }
                         }
                     }
@@ -109,5 +100,47 @@ object NeteaseApi {
         }
 
         return@withContext list
+    }
+
+    // 提取通用的 JSON 解析逻辑，兼容 Search API 和 Detail API 的不同字段名
+    private fun parseSongJsonObject(item: JSONObject): LocalSong {
+        val id = item.getLong("id")
+        val name = item.getString("name")
+
+        var artistName = "Unknown"
+        // 兼容 ar (搜索) 和 artists (详情)
+        if (item.has("ar")) {
+            val artists = item.getJSONArray("ar")
+            if (artists.length() > 0) artistName = artists.getJSONObject(0).getString("name")
+        } else if (item.has("artists")) {
+            val artists = item.getJSONArray("artists")
+            if (artists.length() > 0) artistName = artists.getJSONObject(0).getString("name")
+        }
+
+        var picUrl = ""
+        // 兼容 al (搜索) 和 album (详情)
+        if (item.has("al")) {
+            val album = item.getJSONObject("al")
+            picUrl = album.optString("picUrl", "")
+        } else if (item.has("album")) {
+            val album = item.getJSONObject("album")
+            picUrl = album.optString("picUrl", "")
+        }
+
+        if (picUrl.startsWith("http://")) {
+            picUrl = picUrl.replace("http://", "https://")
+        }
+
+        val musicUrl = "http://music.163.com/song/media/outer/url?id=$id.mp3"
+
+        return LocalSong(
+            id = id,
+            title = name,
+            artist = artistName,
+            albumId = 0,
+            uri = musicUrl.toUri(),
+            albumArtUri = picUrl.toUri(),
+            lastModified = System.currentTimeMillis()
+        )
     }
 }
