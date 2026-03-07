@@ -1,24 +1,33 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-/.idea/codeStyles
-/.idea/inspectionProfiles
-/build
-/app/build
-.externalNativeBuild
-.cxx
-/captures
-.DS_Store
-Thumbs.db
+# 签名、密钥与敏感配置文件
+keystore.properties
+secrets.properties
 *.jks
 *.keystore
 *.key
 *.pem
+
+# 构建与编译产物
+/build
+/app/build
+/app/release/
 *.apk
 *.aab
+*.class
+*.dex
+.externalNativeBuild
+.cxx
+
+# 本地环境与 IDE 配置
+/.idea
+/local.properties
+*.iml
+.gradle
+
+# 调试日志与分析工具产物
+/captures
+*.log
+
+# 操作系统自动生成的隐藏文件
+.DS_Store
+._*
+Thumbs.db

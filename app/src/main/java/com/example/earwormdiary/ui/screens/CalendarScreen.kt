@@ -39,6 +39,19 @@ import com.example.earwormdiary.data.model.Category
 import com.example.earwormdiary.data.model.DailyRecord
 import com.example.earwormdiary.ui.components.AlbumCover
 import com.example.earwormdiary.ui.components.CategorySelectionDialog
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.ui.platform.LocalContext
+import coil.imageLoader
+import coil.request.ImageRequest
+import com.example.earwormdiary.ui.components.bitmapCache
+import com.example.earwormdiary.ui.components.loadLocalAudioCover
 
 @Composable
 fun CalendarScreen(
@@ -51,8 +64,44 @@ fun CalendarScreen(
     onCopyRecord: (LocalDate, LocalDate) -> Unit,
     onUpdateRecord: (DailyRecord) -> Unit
 ) {
+    val context = LocalContext.current
+    val imageLoader = context.imageLoader
     var currentMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     var showDatePicker by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentMonth, records) {
+        withContext(Dispatchers.IO) {
+            val startMonth = currentMonth.minusMonths(1)
+            val endMonth = currentMonth.plusMonths(1)
+
+            val recordsToPreload = records.filterKeys { date ->
+                val recordMonth = YearMonth.from(date)
+                !recordMonth.isBefore(startMonth) && !recordMonth.isAfter(endMonth)
+            }
+
+            recordsToPreload.values.forEach { record ->
+                val song = record.song
+                if (song.isNone || song.isText) return@forEach
+
+                val isNetwork = song.albumArtUri.toString().startsWith("http")
+
+                if (isNetwork) {
+                    val request = ImageRequest.Builder(context)
+                        .data(song.albumArtUri.toString())
+                        .build()
+                    imageLoader.enqueue(request)
+                } else {
+                    val cacheKey = song.uri.toString()
+                    if (bitmapCache.get(cacheKey) == null) {
+                        val loadedBitmap = loadLocalAudioCover(context, song.uri)
+                        if (loadedBitmap != null) {
+                            bitmapCache.put(cacheKey, loadedBitmap)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     if (showDatePicker) {
         YearMonthPickerDialog(
@@ -88,16 +137,33 @@ fun CalendarScreen(
                 DaysOfWeekHeader()
                 Spacer(modifier = Modifier.height(8.dp))
 
-                ManualCalendarGrid(
-                    currentMonth = currentMonth,
-                    records = records,
-                    selectedDate = selectedDate,
-                    onDateSelected = onDateSelected,
-                    onCopyRecord = onCopyRecord,
-                    onMonthSwipe = { direction ->
-                        currentMonth = currentMonth.plusMonths(direction.toLong())
-                    }
-                )
+                AnimatedContent(
+                    targetState = currentMonth,
+                    transitionSpec = {
+                        // 判断是切换到下一个月还是上一个月
+                        if (targetState.isAfter(initialState)) {
+                            (slideInHorizontally { width -> width } + fadeIn()).togetherWith(
+                                slideOutHorizontally { width -> -width } + fadeOut()
+                            )
+                        } else {
+                            (slideInHorizontally { width -> -width } + fadeIn()).togetherWith(
+                                slideOutHorizontally { width -> width } + fadeOut()
+                            )
+                        }
+                    },
+                    label = "calendar_month_animation"
+                ) { targetMonth ->
+                    ManualCalendarGrid(
+                        currentMonth = targetMonth,
+                        records = records,
+                        selectedDate = selectedDate,
+                        onDateSelected = onDateSelected,
+                        onCopyRecord = onCopyRecord,
+                        onMonthSwipe = { direction ->
+                            currentMonth = currentMonth.plusMonths(direction.toLong())
+                        }
+                    )
+                }
             }
         }
 

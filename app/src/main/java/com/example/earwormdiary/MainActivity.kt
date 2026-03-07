@@ -74,6 +74,13 @@ import com.example.earwormdiary.ui.screens.TodayScreen
 import java.time.LocalDate
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+import coil.imageLoader
+import coil.request.ImageRequest
+import com.example.earwormdiary.ui.components.bitmapCache
+import com.example.earwormdiary.ui.components.loadLocalAudioCover
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.YearMonth
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,6 +101,41 @@ fun AppEntry() {
 
     val initialRecords = remember { RecordStorage.loadRecords(context) }
     val records = remember { mutableStateMapOf<LocalDate, DailyRecord>().apply { putAll(initialRecords) } }
+
+    val imageLoader = context.imageLoader
+    LaunchedEffect(records) {
+        if (records.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                val currentMonth = YearMonth.now()
+
+                val thisMonthRecords = records.filterKeys { date ->
+                    YearMonth.from(date) == currentMonth
+                }
+
+                thisMonthRecords.values.forEach { record ->
+                    val song = record.song
+                    if (song.isNone || song.isText) return@forEach
+
+                    val isNetwork = song.albumArtUri.toString().startsWith("http")
+
+                    if (isNetwork) {
+                        val request = ImageRequest.Builder(context)
+                            .data(song.albumArtUri.toString())
+                            .build()
+                        imageLoader.enqueue(request)
+                    } else {
+                        val cacheKey = song.uri.toString()
+                        if (bitmapCache.get(cacheKey) == null) {
+                            val loadedBitmap = loadLocalAudioCover(context, song.uri)
+                            if (loadedBitmap != null) {
+                                bitmapCache.put(cacheKey, loadedBitmap)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fun save() {
         RecordStorage.saveRecords(context, records)
