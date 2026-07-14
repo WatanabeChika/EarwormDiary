@@ -82,6 +82,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.YearMonth
 
+private const val EDIT_MODE_ADD = "add"
+private const val EDIT_MODE_REPLACE = "replace"
+private const val EDIT_MODE_REPLACE_ALL = "replace_all"
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,22 +117,24 @@ fun AppEntry() {
                 }
 
                 thisMonthRecords.values.forEach { record ->
-                    val song = record.song
-                    if (song.isNone || song.isText) return@forEach
+                    record.entries.forEach { entry ->
+                        val song = entry.song
+                        if (song.isNone || song.isText) return@forEach
 
-                    val isNetwork = song.albumArtUri.toString().startsWith("http")
+                        val isNetwork = song.albumArtUri.toString().startsWith("http")
 
-                    if (isNetwork) {
-                        val request = ImageRequest.Builder(context)
-                            .data(song.albumArtUri.toString())
-                            .build()
-                        imageLoader.enqueue(request)
-                    } else {
-                        val cacheKey = song.uri.toString()
-                        if (bitmapCache.get(cacheKey) == null) {
-                            val loadedBitmap = loadLocalAudioCover(context, song.uri)
-                            if (loadedBitmap != null) {
-                                bitmapCache.put(cacheKey, loadedBitmap)
+                        if (isNetwork) {
+                            val request = ImageRequest.Builder(context)
+                                .data(song.albumArtUri.toString())
+                                .build()
+                            imageLoader.enqueue(request)
+                        } else {
+                            val cacheKey = song.uri.toString()
+                            if (bitmapCache.get(cacheKey) == null) {
+                                val loadedBitmap = loadLocalAudioCover(context, song.uri)
+                                if (loadedBitmap != null) {
+                                    bitmapCache.put(cacheKey, loadedBitmap)
+                                }
                             }
                         }
                     }
@@ -139,6 +145,21 @@ fun AppEntry() {
 
     fun save() {
         RecordStorage.saveRecords(context, records)
+    }
+
+    fun navigateToSelection(date: LocalDate, mode: String, index: Int = -1) {
+        navController.navigateSingle("selection/$date/$mode/$index")
+    }
+
+    fun updateRecord(date: LocalDate, transform: (DailyRecord) -> DailyRecord?) {
+        val currentRecord = records[date] ?: return
+        val updatedRecord = transform(currentRecord)
+        if (updatedRecord == null) {
+            records.remove(date)
+        } else {
+            records[date] = updatedRecord
+        }
+        save()
     }
 
     var calendarSelectedDate by remember { mutableStateOf(LocalDate.now()) }
@@ -249,11 +270,19 @@ fun AppEntry() {
                     TodayScreen(
                         records = records,
                         categories = categories,
-                        onNavigateToSearch = {
-                            val today = LocalDate.now().toString()
-                            navController.navigateSingle("selection/$today")
+                        onAddSong = {
+                            navigateToSelection(LocalDate.now(), EDIT_MODE_ADD)
                         },
-                        onRemoveRecord = {
+                        onReplaceSong = { index ->
+                            navigateToSelection(LocalDate.now(), EDIT_MODE_REPLACE, index)
+                        },
+                        onReplaceAllSongs = {
+                            navigateToSelection(LocalDate.now(), EDIT_MODE_REPLACE_ALL)
+                        },
+                        onDeleteSong = { index ->
+                            updateRecord(LocalDate.now()) { it.removeSong(index) }
+                        },
+                        onDeleteAllSongs = {
                             records.remove(LocalDate.now())
                             save()
                         },
@@ -289,7 +318,16 @@ fun AppEntry() {
                         categories = categories,
                         selectedDate = calendarSelectedDate,
                         onDateSelected = { calendarSelectedDate = it },
-                        onDayClick = { date -> navController.navigateSingle("selection/$date") },
+                        onAddSong = { date -> navigateToSelection(date, EDIT_MODE_ADD) },
+                        onReplaceSong = { date, index ->
+                            navigateToSelection(date, EDIT_MODE_REPLACE, index)
+                        },
+                        onReplaceAllSongs = { date ->
+                            navigateToSelection(date, EDIT_MODE_REPLACE_ALL)
+                        },
+                        onDeleteSong = { date, index ->
+                            updateRecord(date) { it.removeSong(index) }
+                        },
                         onRemoveRecord = { date ->
                             records.remove(date)
                             save()
@@ -457,8 +495,12 @@ fun AppEntry() {
 
             // ================== 检索页面 (Selection) ==================
             composable(
-                route = "selection/{date}",
-                arguments = listOf(navArgument("date") { type = NavType.StringType }),
+                route = "selection/{date}/{mode}/{index}",
+                arguments = listOf(
+                    navArgument("date") { type = NavType.StringType },
+                    navArgument("mode") { type = NavType.StringType },
+                    navArgument("index") { type = NavType.IntType }
+                ),
                 enterTransition = {
                     slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Up, tween(350))
                 },
@@ -471,6 +513,10 @@ fun AppEntry() {
             ) { backStackEntry ->
                 val dateString = backStackEntry.arguments?.getString("date") ?: LocalDate.now().toString()
                 val targetDate = LocalDate.parse(dateString)
+                val mode = backStackEntry.arguments?.getString("mode") ?: EDIT_MODE_ADD
+                val targetIndex = backStackEntry.arguments?.getInt("index") ?: -1
+                val currentRecord = records[targetDate]
+                val isAppendingToExistingRecord = mode == EDIT_MODE_ADD && currentRecord != null
 
                 PullToDismissContainer(
                     onDismiss = { navController.popBackStack() }
@@ -478,8 +524,31 @@ fun AppEntry() {
                     SongSelectionView(
                         targetDate = targetDate,
                         folderUris = folderUris,
+                        allowNoneSelection = !isAppendingToExistingRecord,
+                        excludedSongs = if (isAppendingToExistingRecord) currentRecord.songs else emptyList(),
                         onSongSelected = { song ->
-                            records[targetDate] = DailyRecord(targetDate, song)
+                            val updatedRecord = when (mode) {
+                                EDIT_MODE_ADD -> {
+                                    if (currentRecord == null) {
+                                        DailyRecord.single(targetDate, song)
+                                    } else if (currentRecord.canAddMore) {
+                                        currentRecord.addSong(song)
+                                    } else {
+                                        currentRecord
+                                    }
+                                }
+                                EDIT_MODE_REPLACE -> {
+                                    val currentRecord = records[targetDate]
+                                    if (currentRecord != null && targetIndex in currentRecord.entries.indices) {
+                                        currentRecord.replaceSong(targetIndex, song)
+                                    } else {
+                                        DailyRecord.single(targetDate, song)
+                                    }
+                                }
+                                EDIT_MODE_REPLACE_ALL -> DailyRecord.single(targetDate, song)
+                                else -> DailyRecord.single(targetDate, song)
+                            }
+                            records[targetDate] = updatedRecord
                             save()
                             navController.popBackStack()
                         },

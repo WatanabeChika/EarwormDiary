@@ -22,6 +22,7 @@ secrets.properties
 /local.properties
 *.iml
 .gradle
+.agents
 
 # 调试日志与分析工具产物
 /captures

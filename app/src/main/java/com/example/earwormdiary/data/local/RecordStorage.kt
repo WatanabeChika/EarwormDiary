@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import com.example.earwormdiary.data.model.Category
 import com.example.earwormdiary.data.model.DailyRecord
 import com.example.earwormdiary.data.model.LocalSong
+import com.example.earwormdiary.data.model.RecordEntry
 import com.example.earwormdiary.utils.loadMusicFromCache
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,66 +17,79 @@ import java.util.UUID
 object RecordStorage {
     private const val FILE_NAME = "daily_records.json"
 
-    // 保存记录
     fun saveRecords(context: Context, records: Map<LocalDate, DailyRecord>) {
         try {
             val jsonArray = JSONArray()
             records.forEach { (date, record) ->
                 val jsonObj = JSONObject().apply {
                     put("date", date.toString())
-                    if (record.categoryId != null) put("categoryId", record.categoryId)
-
-                    val songObj = JSONObject().apply {
-                        put("id", record.song.id)
-                        put("title", record.song.title)
-                        put("artist", record.song.artist)
-                        put("albumId", record.song.albumId)
-                        put("uri", record.song.uri.toString())
-                        put("albumArtUri", record.song.albumArtUri.toString())
-                        put("lastModified", record.song.lastModified)
-                    }
-                    put("song", songObj)
+                    put("entries", JSONArray().apply {
+                        record.entries.forEach { entry ->
+                            put(
+                                JSONObject().apply {
+                                    put("song", songToJson(entry.song))
+                                    if (entry.categoryId != null) {
+                                        put("categoryId", entry.categoryId)
+                                    }
+                                }
+                            )
+                        }
+                    })
                 }
                 jsonArray.put(jsonObj)
             }
-            val file = File(context.filesDir, FILE_NAME)
-            file.writeText(jsonArray.toString())
+            File(context.filesDir, FILE_NAME).writeText(jsonArray.toString())
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    // 加载记录
     fun loadRecords(context: Context): Map<LocalDate, DailyRecord> {
         val resultMap = mutableMapOf<LocalDate, DailyRecord>()
         val file = File(context.filesDir, FILE_NAME)
         if (!file.exists()) return resultMap
 
         try {
-            val jsonString = file.readText()
-            val jsonArray = JSONArray(jsonString)
+            val jsonArray = JSONArray(file.readText())
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val date = LocalDate.parse(obj.getString("date"))
-                val categoryId = if (obj.has("categoryId")) obj.getString("categoryId") else null
-                val songObj = obj.getJSONObject("song")
 
-                val song = LocalSong(
-                    id = songObj.getLong("id"),
-                    title = songObj.getString("title"),
-                    artist = songObj.getString("artist"),
-                    albumId = songObj.getLong("albumId"),
-                    uri = songObj.getString("uri").toUri(),
-                    albumArtUri = songObj.getString("albumArtUri").toUri(),
-                    lastModified = songObj.optLong("lastModified", 0L)
-                )
-                resultMap[date] = DailyRecord(date, song, categoryId)
+                val entries = if (obj.has("entries")) {
+                    val entriesArray = obj.getJSONArray("entries")
+                    buildList {
+                        for (entryIndex in 0 until entriesArray.length()) {
+                            val entryObj = entriesArray.getJSONObject(entryIndex)
+                            val songObj = entryObj.getJSONObject("song")
+                            add(
+                                RecordEntry(
+                                    song = songFromJson(songObj),
+                                    categoryId = entryObj.optString("categoryId").ifBlank { null }
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    val categoryId = obj.optString("categoryId").ifBlank { null }
+                    val songObj = obj.getJSONObject("song")
+                    listOf(
+                        RecordEntry(
+                            song = songFromJson(songObj),
+                            categoryId = categoryId
+                        )
+                    )
+                }
+
+                if (entries.isNotEmpty()) {
+                    resultMap[date] = DailyRecord(date = date, entries = entries.take(DailyRecord.MAX_SONGS_PER_DAY))
+                }
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         return resultMap
     }
 
-    // 导出数据
     fun exportDataToUri(
         context: Context,
         uri: Uri,
@@ -87,30 +101,32 @@ object RecordStorage {
             records.toSortedMap().forEach { (date, record) ->
                 val jsonObj = JSONObject().apply {
                     put("date", date.toString())
-                    put("title", record.song.title)
-                    put("artist", record.song.artist)
+                    put("songCount", record.songCount)
 
-                    val uriStr = record.song.uri.toString()
-                    val artStr = record.song.albumArtUri.toString()
+                    record.entries.forEachIndexed { index, entry ->
+                        val suffix = exportFieldSuffix(index)
+                        put("title$suffix", entry.song.title)
+                        put("artist$suffix", entry.song.artist)
 
-                    // 判断来源：如果是 http 开头，说明是网络歌曲
-                    if (uriStr.startsWith("http") || artStr.startsWith("http")) {
-                        put("sourceType", "NETEASE")
-                        put("remoteId", record.song.id)
-                        put("uri", uriStr)
-                        put("albumArtUri", artStr)
-                    } else if (record.song.isText) {
-                        put("sourceType", "TEXT")
-                    } else if (record.song.isNone) {
-                        put("sourceType", "NONE")
-                    } else {
-                        put("sourceType", "LOCAL")
-                    }
+                        val uriStr = entry.song.uri.toString()
+                        val artStr = entry.song.albumArtUri.toString()
 
-                    // 导出分类名称
-                    val categoryName = categories.find { it.id == record.categoryId }?.name
-                    if (categoryName != null) {
-                        put("category", categoryName)
+                        when {
+                            uriStr.startsWith("http") || artStr.startsWith("http") -> {
+                                put("sourceType$suffix", "NETEASE")
+                                put("remoteId$suffix", entry.song.id)
+                                put("uri$suffix", uriStr)
+                                put("albumArtUri$suffix", artStr)
+                            }
+                            entry.song.isText -> put("sourceType$suffix", "TEXT")
+                            entry.song.isNone -> put("sourceType$suffix", "NONE")
+                            else -> put("sourceType$suffix", "LOCAL")
+                        }
+
+                        val categoryName = categories.find { it.id == entry.categoryId }?.name
+                        if (categoryName != null) {
+                            put("category$suffix", categoryName)
+                        }
                     }
                 }
                 jsonArray.put(jsonObj)
@@ -126,8 +142,10 @@ object RecordStorage {
         }
     }
 
-    // 导入数据
-    suspend fun importDataFromUri(context: Context, uri: Uri): Triple<Map<LocalDate, DailyRecord>, List<Category>, List<String>> {
+    suspend fun importDataFromUri(
+        context: Context,
+        uri: Uri
+    ): Triple<Map<LocalDate, DailyRecord>, List<Category>, List<String>> {
         val resultMap = mutableMapOf<LocalDate, DailyRecord>()
         val currentCategories = CategoryStorage.loadCategories(context).toMutableList()
         val warningMessages = mutableListOf<String>()
@@ -140,102 +158,172 @@ object RecordStorage {
 
             if (jsonString.isBlank()) return Triple(emptyMap(), currentCategories, emptyList())
 
-            // 1. 加载本地歌曲库，使用 groupBy 处理重名情况
             val allSongs = loadMusicFromCache(context)
             val localSongGroups = allSongs.groupBy { it.title }
 
             val jsonArray = JSONArray(jsonString)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                if (!obj.has("date") || !obj.has("title")) continue
+                if (!obj.has("date") || !hasAnySongTitle(obj)) continue
 
                 val date = LocalDate.parse(obj.getString("date"))
-                val title = obj.getString("title")
-                val jsonArtist = obj.optString("artist", "")
+                val importedEntries = mutableListOf<RecordEntry>()
 
-                val categoryName = if (obj.has("category")) obj.getString("category") else ""
-                var categoryId: String? = null
-                if (categoryName.isNotBlank()) {
-                    val existingCat = currentCategories.find { it.name == categoryName }
-                    if (existingCat != null) {
-                        categoryId = existingCat.id
-                    } else {
-                        val newId = UUID.randomUUID().toString()
-                        val newCat = Category(newId, categoryName)
-                        currentCategories.add(newCat)
-                        categoriesChanged = true
-                        categoryId = newId
-                    }
+                val songCount = detectImportedSongCount(obj)
+                for (songIndex in 0 until songCount) {
+                    val suffix = exportFieldSuffix(songIndex)
+                    val title = obj.optString("title$suffix").trim()
+                    if (title.isBlank()) continue
+
+                    val artist = obj.optString("artist$suffix", "")
+                    val categoryName = obj.optString("category$suffix", "")
+                    val categoryId = resolveCategoryId(
+                        categoryName = categoryName,
+                        currentCategories = currentCategories
+                    ).also { categoriesChanged = categoriesChanged || it.second }.first
+
+                    val song = resolveImportedSong(
+                        obj = obj,
+                        title = title,
+                        artist = artist,
+                        songIndex = songIndex,
+                        date = date,
+                        localSongGroups = localSongGroups,
+                        warningMessages = warningMessages
+                    )
+
+                    importedEntries.add(RecordEntry(song = song, categoryId = categoryId))
+                    if (importedEntries.size == DailyRecord.MAX_SONGS_PER_DAY) break
                 }
 
-                val sourceType = obj.optString("sourceType", "")
-                var finalSong: LocalSong? = null
-
-                // 尝试在本地库中查找同名歌曲
-                val matches = localSongGroups[title]
-
-                if (matches != null && matches.isNotEmpty()) {
-                    if (matches.size == 1) {
-                        // A. 只有一首同名歌曲 -> 直接使用
-                        finalSong = matches[0]
-                    } else {
-                        // B. 有多首同名歌曲 -> 尝试匹配歌手
-                        // 尝试找到歌手名包含 jsonArtist 或者被 jsonArtist 包含的记录 (模糊匹配)
-                        val artistMatch = matches.find {
-                            it.artist.equals(jsonArtist, ignoreCase = true) ||
-                                    (jsonArtist.isNotBlank() && it.artist.contains(jsonArtist, ignoreCase = true))
-                        }
-
-                        if (artistMatch != null) {
-                            finalSong = artistMatch
-                        } else {
-                            // Fallback: 默认选第一个
-                            finalSong = matches[0]
-
-                            val conflictMsg = if (jsonArtist.isNotBlank()) {
-                                "日期 $date: 歌曲 [$title] 本地有多个版本，且未找到歌手 [$jsonArtist]。已默认选择: ${finalSong.artist}"
-                            } else {
-                                "日期 $date: 歌曲 [$title] 本地有多个版本(纯文字记录)。已默认选择: ${finalSong.artist}"
-                            }
-                            warningMessages.add(conflictMsg)
-                        }
-                    }
+                if (importedEntries.isNotEmpty()) {
+                    resultMap[date] = DailyRecord(date = date, entries = importedEntries)
                 }
-
-                // 最终决策
-                val song = // 1. 即使原记录是 NETEASE 或 TEXT，只要本地找到了同名歌，就优先用本地的
-                    finalSong
-                        ?: // 2. 本地没找到，按原 sourceType 恢复
-                        when (sourceType) {
-                            "NETEASE" -> {
-                                LocalSong(
-                                    id = obj.optLong("remoteId", 0L),
-                                    title = title,
-                                    artist = jsonArtist.ifBlank { "Unknown" },
-                                    albumId = 0,
-                                    uri = obj.optString("uri", "").toUri(),
-                                    albumArtUri = obj.optString("albumArtUri", "").toUri(),
-                                    lastModified = System.currentTimeMillis()
-                                )
-                            }
-
-                            "NONE" -> LocalSong.createNone()
-                            // TEXT 或 LOCAL(但本地文件已丢失) -> 降级为纯文字
-                            else -> LocalSong.createText(title)
-                        }
-
-                resultMap[date] = DailyRecord(date, song, categoryId)
             }
 
             if (categoriesChanged) {
                 CategoryStorage.saveCategories(context, currentCategories)
             }
-
         } catch (e: Exception) {
             e.printStackTrace()
-            warningMessages.add("导入过程中发生严重错误: ${e.message}")
+            warningMessages.add("Import failed: ${e.message}")
         }
 
         return Triple(resultMap, currentCategories, warningMessages)
+    }
+
+    private fun songToJson(song: LocalSong): JSONObject {
+        return JSONObject().apply {
+            put("id", song.id)
+            put("title", song.title)
+            put("artist", song.artist)
+            put("albumId", song.albumId)
+            put("uri", song.uri.toString())
+            put("albumArtUri", song.albumArtUri.toString())
+            put("lastModified", song.lastModified)
+        }
+    }
+
+    private fun songFromJson(songObj: JSONObject): LocalSong {
+        return LocalSong(
+            id = songObj.getLong("id"),
+            title = songObj.getString("title"),
+            artist = songObj.getString("artist"),
+            albumId = songObj.getLong("albumId"),
+            uri = songObj.getString("uri").toUri(),
+            albumArtUri = songObj.getString("albumArtUri").toUri(),
+            lastModified = songObj.optLong("lastModified", 0L)
+        )
+    }
+
+    private fun exportFieldSuffix(index: Int): String {
+        return if (index == 0) "" else "${index + 1}"
+    }
+
+    private fun hasAnySongTitle(obj: JSONObject): Boolean {
+        return (0 until DailyRecord.MAX_SONGS_PER_DAY).any { index ->
+            obj.optString("title${exportFieldSuffix(index)}").isNotBlank()
+        }
+    }
+
+    private fun detectImportedSongCount(obj: JSONObject): Int {
+        val explicitCount = obj.optInt("songCount", 0)
+        if (explicitCount > 0) {
+            return explicitCount.coerceIn(1, DailyRecord.MAX_SONGS_PER_DAY)
+        }
+
+        var detectedCount = 0
+        for (index in 0 until DailyRecord.MAX_SONGS_PER_DAY) {
+            val suffix = exportFieldSuffix(index)
+            if (obj.optString("title$suffix").isNotBlank()) {
+                detectedCount = index + 1
+            }
+        }
+        return detectedCount.coerceAtLeast(1)
+    }
+
+    private fun resolveCategoryId(
+        categoryName: String,
+        currentCategories: MutableList<Category>
+    ): Pair<String?, Boolean> {
+        if (categoryName.isBlank()) return Pair(null, false)
+
+        val existingCategory = currentCategories.find { it.name == categoryName }
+        if (existingCategory != null) {
+            return Pair(existingCategory.id, false)
+        }
+
+        val newId = UUID.randomUUID().toString()
+        currentCategories.add(Category(id = newId, name = categoryName))
+        return Pair(newId, true)
+    }
+
+    private fun resolveImportedSong(
+        obj: JSONObject,
+        title: String,
+        artist: String,
+        songIndex: Int,
+        date: LocalDate,
+        localSongGroups: Map<String, List<LocalSong>>,
+        warningMessages: MutableList<String>
+    ): LocalSong {
+        val matches = localSongGroups[title]
+
+        if (!matches.isNullOrEmpty()) {
+            if (matches.size == 1) {
+                return matches[0]
+            }
+
+            val artistMatch = matches.find {
+                it.artist.equals(artist, ignoreCase = true) ||
+                    (artist.isNotBlank() && it.artist.contains(artist, ignoreCase = true))
+            }
+
+            if (artistMatch != null) {
+                return artistMatch
+            }
+
+            warningMessages.add(
+                "Date $date song ${songIndex + 1}: [$title] matched multiple local files. Defaulted to ${matches[0].artist}."
+            )
+            return matches[0]
+        }
+
+        val suffix = exportFieldSuffix(songIndex)
+        return when (obj.optString("sourceType$suffix", "")) {
+            "NETEASE" -> {
+                LocalSong(
+                    id = obj.optLong("remoteId$suffix", 0L),
+                    title = title,
+                    artist = artist.ifBlank { "Unknown" },
+                    albumId = 0L,
+                    uri = obj.optString("uri$suffix", "").toUri(),
+                    albumArtUri = obj.optString("albumArtUri$suffix", "").toUri(),
+                    lastModified = System.currentTimeMillis()
+                )
+            }
+            "NONE" -> LocalSong.createNone()
+            else -> LocalSong.createText(title)
+        }
     }
 }

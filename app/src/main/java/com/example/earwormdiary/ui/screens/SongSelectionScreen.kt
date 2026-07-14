@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.earwormdiary.data.model.LocalSong
 import com.example.earwormdiary.data.network.NeteaseApi
 import com.example.earwormdiary.ui.components.AlbumCover
 import com.example.earwormdiary.utils.loadMusicFromCache
@@ -31,16 +32,18 @@ import kotlinx.coroutines.launch
 fun SongSelectionView(
     targetDate: java.time.LocalDate,
     folderUris: List<Uri>,
-    onSongSelected: (com.example.earwormdiary.data.model.LocalSong) -> Unit,
+    allowNoneSelection: Boolean = true,
+    excludedSongs: List<LocalSong> = emptyList(),
+    onSongSelected: (LocalSong) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var allSongs by remember { mutableStateOf<List<com.example.earwormdiary.data.model.LocalSong>>(emptyList()) }
-    var filteredSongs by remember { mutableStateOf<List<com.example.earwormdiary.data.model.LocalSong>>(emptyList()) }
+    var allSongs by remember { mutableStateOf<List<LocalSong>>(emptyList()) }
+    var filteredSongs by remember { mutableStateOf<List<LocalSong>>(emptyList()) }
 
-    var networkSongs by remember { mutableStateOf<List<com.example.earwormdiary.data.model.LocalSong>>(emptyList()) }
+    var networkSongs by remember { mutableStateOf<List<LocalSong>>(emptyList()) }
     var isSearchingNetwork by remember { mutableStateOf(false) }
     var hasSearchedNetwork by remember { mutableStateOf(false) }
 
@@ -48,12 +51,13 @@ fun SongSelectionView(
 
     var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
+    val excludedSongKeys = remember(excludedSongs) { excludedSongs.map(::songSelectionKey).toSet() }
 
     LaunchedEffect(Unit) {
         isLoading = true
         try {
             allSongs = loadMusicFromCache(context)
-            filteredSongs = allSongs
+            filteredSongs = allSongs.filterNot { excludedSongKeys.contains(songSelectionKey(it)) }
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
@@ -61,17 +65,19 @@ fun SongSelectionView(
         }
     }
 
-    LaunchedEffect(searchQuery, allSongs) {
+    LaunchedEffect(searchQuery, allSongs, excludedSongKeys) {
         hasSearchedNetwork = false
         networkSongs = emptyList()
         idSearchResultId = null
 
         filteredSongs = if (searchQuery.isBlank()) {
-            allSongs
+            allSongs.filterNot { excludedSongKeys.contains(songSelectionKey(it)) }
         } else {
             allSongs.filter {
-                it.title.contains(searchQuery, ignoreCase = true) ||
+                !excludedSongKeys.contains(songSelectionKey(it)) && (
+                    it.title.contains(searchQuery, ignoreCase = true) ||
                         it.artist.contains(searchQuery, ignoreCase = true)
+                )
             }
         }
     }
@@ -103,7 +109,7 @@ fun SongSelectionView(
                 idSearchResultId = idResult.id
             }
 
-            networkSongs = searchResults
+            networkSongs = searchResults.filterNot { excludedSongKeys.contains(songSelectionKey(it)) }
             isSearchingNetwork = false
             hasSearchedNetwork = true
 
@@ -151,20 +157,24 @@ fun SongSelectionView(
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     // 1. & 2. (无选项 和 纯文字选项)
-                    item(key = "special_none") {
-                        SongListItem(
-                            song = com.example.earwormdiary.data.model.LocalSong.createNone(),
-                            onClick = { onSongSelected(com.example.earwormdiary.data.model.LocalSong.createNone()) }
-                        )
+                    if (allowNoneSelection) {
+                        item(key = "special_none") {
+                            SongListItem(
+                                song = LocalSong.createNone(),
+                                onClick = { onSongSelected(LocalSong.createNone()) }
+                            )
+                        }
                     }
 
                     if (searchQuery.isNotBlank()) {
                         item(key = "special_text_${searchQuery}") {
-                            val textSong = com.example.earwormdiary.data.model.LocalSong.createText(searchQuery)
-                            SongListItem(
-                                song = textSong,
-                                onClick = { onSongSelected(textSong) }
-                            )
+                            val textSong = LocalSong.createText(searchQuery)
+                            if (!excludedSongKeys.contains(songSelectionKey(textSong))) {
+                                SongListItem(
+                                    song = textSong,
+                                    onClick = { onSongSelected(textSong) }
+                                )
+                            }
                         }
                     }
 
@@ -271,7 +281,7 @@ fun SongSelectionView(
 // SongListItem 增加 backgroundColor 参数以支持高亮
 @Composable
 fun SongListItem(
-    song: com.example.earwormdiary.data.model.LocalSong,
+    song: LocalSong,
     onClick: () -> Unit,
     backgroundColor: Color = Color.Transparent
 ) {
@@ -324,6 +334,18 @@ fun SongListItem(
                     )
                 }
             }
+        }
+    }
+}
+
+private fun songSelectionKey(song: LocalSong): String {
+    return when {
+        song.isNone -> "none"
+        song.isText -> "text:${song.title.trim().lowercase()}"
+        else -> {
+            val normalizedTitle = song.title.trim().lowercase()
+            val normalizedArtist = song.artist.trim().lowercase()
+            "song:$normalizedTitle::$normalizedArtist"
         }
     }
 }
