@@ -192,7 +192,7 @@ fun AppEntry() {
         currentDestination == "settings" -> "设置"
         currentDestination == "settings/library" -> "音乐库管理"
         currentDestination == "settings/category" -> "类别管理"
-        currentDestination == "settings/backup" -> "数据备份与恢复"
+        currentDestination == "settings/backup" -> "数据导出与导入"
         currentDestination?.startsWith("selection") == true -> "选择歌曲"
         else -> "Daily Music"
     }
