@@ -13,17 +13,11 @@
 
 ## 📖 简介
 
-你是否也有过这样的时刻：清晨醒来，脑海中莫名循环着一段旋律？或是行色匆匆时，突然被某首歌“击中”心绪？
+你是否也有过这样的时刻：清晨醒来，脑海中莫名循环着一段旋律；或是在某个普通的瞬间，突然被一首歌击中？
 
-**耳虫日记** 是一款专注于记录“耳虫现象”（Earworm）的 Android 应用程序。它不仅是一个记录工具，更是一本由旋律与专辑封面编织而成的**听觉手账**。旨在帮你捕捉那些稍纵即逝的听觉记忆。
+**耳虫日记** 是一款专注于记录“耳虫现象”（Earworm）的 Android 应用。它把每天浮现在脑海里的旋律整理成可回看、可分类、可导出的音乐日历，让零散的听觉记忆沉淀为长期可追踪的个人记录。
 
 ---
-
-<!-- ## 📱 界面与功能预览
-
-<img src="images/todayscreen.jpg" width="250" alt="">
-<img src="images/calendar.jpg" width="250" alt="">
-<img src="images/search.jpg" width="250" alt=""> -->
 
 ## 📱 界面与功能预览
 
@@ -33,24 +27,49 @@
       <img src="images/todayscreen.jpg" width="220" alt="今日旋律">
     </td>
     <td align="center" width="33%">
-      <img src="images/calendar.jpg" width="220" alt="音乐日历">
+      <img src="images/calendar.jpg" width="220" alt="耳虫日历">
     </td>
     <td align="center" width="33%">
-      <img src="images/search.jpg" width="220" alt="智能检索">
+      <img src="images/search.jpg" width="220" alt="选择记录">
     </td>
   </tr>
   <tr>
     <td align="center">
-      <b>🎵 捕捉清晨灵感</b><br>
-      <sub>极简的今日面板，支持纯文本记录或本地高音质音频解析，快速留住那段耳虫。</sub>
+      <b>🎵 今日记录</b><br>
+      <sub>支持单日记录 1 到 3 首歌，并为每首歌分别设置类别，适合记录同一天的多重耳虫。</sub>
     </td>
     <td align="center">
-      <b>📅 专属音乐画卷</b><br>
-      <sub>告别枯燥列表，用专辑封面重塑月度日历，让每一天的情绪记忆都清晰可见。</sub>
+      <b>📅 耳虫日历</b><br>
+      <sub>用专辑封面重建月历视图，按日期回看当日记录与分类信息。</sub>
     </td>
     <td align="center">
-      <b>🔍 智能云端检索</b><br>
-      <sub>本地库未命中？内置 API 智能兜底，一键全网搜索并精准补全封面与曲目信息。</sub>
+      <b>🔍 混合搜索</b><br>
+      <sub>本地媒体库优先，未命中时再使用网易云音乐搜索兜底。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="images/settings-export.jpg" width="220" alt="导出设置">
+    </td>
+    <td align="center" width="33%">
+      <img src="images/category-management.jpg" width="220" alt="类别管理">
+    </td>
+    <td align="center" width="33%">
+      <img src="images/category-stats.jpg" width="220" alt="类别统计">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>📤 区间导出</b><br>
+      <sub>支持按月份导出耳虫日历图片，也支持按年份或自定义起止日期导出 JSON 数据。</sub>
+    </td>
+    <td align="center">
+      <b>🗂️ 类别管理</b><br>
+      <sub>可维护活跃类别与已归档类别，支持排序、编辑、删除和长期整理。</sub>
+    </td>
+    <td align="center">
+      <b>📊 类别统计</b><br>
+      <sub>从类别直接查看命中条数和历史歌曲记录，快速回看某一类音乐偏好。</sub>
     </td>
   </tr>
 </table>
@@ -59,36 +78,65 @@
 
 ## ✨ 核心特性
 
-### 📅 沉浸式音乐日历
-告别枯燥的列表，用**专辑封面墙**拼凑你的月度音乐心情。
-* **月视图画卷**：以封面图填充日历，直观呈现每日“耳虫”。
-* **时光回溯**：点击日期查看详细记录，支持年份/月份快速跳转。
-* **多维分类**：支持自定义标签与分类管理，让你的音乐偏好有迹可循。
+### 🎼 单日可记录 1 到 3 首歌
 
-### ⚡ 高效交互与智能记录
-为捕捉灵感而生的流畅体验，让记录不再繁琐。
-* **混合检索模式**：极速扫描本地高音质音频，联网搜索网易云音乐 API 兜底，或直接使用纯文本记录。
-* **智能关联修复**：自动将过往的“纯文本/网络记录”匹配至本地新下载的高音质文件，实现数据“无感升级”。
-* **手势复刻**：独创**长按拖拽**交互，只需轻轻一拖，即可将昨天的旋律“延续”到今天。
+- 支持一天内记录 1 首、2 首或 3 首歌，适合“同一天脑内循环多首歌”的情况。
+- 已有记录可继续追加歌曲，也可以按单首进行更换、删除或整体替换。
+- 每首歌都可以独立设置类别，便于后续统计和归档。
 
-### 🛡️ 离线优先与绝对隐私
-你的记忆只属于你自己。
-* **数据主权**：所有日记数据完全存储于本地，无云端上传，无追踪代码。
-* **便捷迁移**：支持标准 JSON 格式的导入与导出，备份随心。
+### 🔍 本地优先的混合检索
+
+- 优先扫描本地音频文件并解析封面、标题、歌手等信息。
+- 当本地库未命中时，可继续使用网易云音乐搜索补全记录。
+- 支持纯文本记录、网络记录与本地文件记录共存。
+- 新下载到本地的歌曲可自动关联已有文本/网络记录，减少重复整理成本。
+
+### 📅 可视化耳虫日历
+
+- 使用专辑封面填充月历单元格，直观看到整个月的“耳虫分布”。
+- 支持按年/月快速跳转，并点击具体日期查看详细记录。
+- 当天若记录多首歌，会在视觉上进行拆分展示，而不是压缩成单条文本。
+
+### 🗂️ 类别管理、归档与统计
+
+- 支持自定义类别，并为每条歌曲记录单独打标签。
+- 类别可排序、编辑、删除，也支持归档不再继续使用的类别。
+- 归档后的类别不会破坏历史数据，仍可继续查看该类别下的全部歌曲记录。
+- 可从类别页进入统计视图，查看某个类别累计命中的歌曲条目。
+
+### 📤 数据导入导出
+
+- 支持导出 JSON 数据，默认可导出全部记录。
+- 支持按年份快捷导出，也支持手动指定起止日期导出。
+- 导出的 JSON 会保留多首歌曲记录与类别信息，便于备份与迁移。
+- 支持从 JSON 导入数据；相同日期的记录会被覆盖，本地找不到歌曲时会自动降级为纯文字记录。
+
+### 🖼️ 耳虫日历图片导出
+
+- 支持按月份范围导出耳虫日历图片。
+- 最少可导出 1 个月，最多可连续导出 12 个月。
+- 导出图片会保存到 `Pictures/EarwormDiary`，适合做长期存档或分享。
+
+### 🛡️ 离线优先与本地存储
+
+- 应用数据默认保存在本地，无需依赖云端服务。
+- 分类与日记记录都以本地文件形式保存，便于用户掌控和备份。
+- 无账号系统、无同步前提，更适合作为私人音乐日志使用。
 
 ---
 
-## 🛠️ 技术栈 (Tech Stack)
+## 🛠️ 技术栈
 
-本项目完全使用现代 Android 开发技术栈构建：
-* **语言**: [Kotlin](https://kotlinlang.org/) (100%)
-* **UI 框架**: [Jetpack Compose](https://developer.android.com/jetpack/compose) + Material Design 3
-* **图像加载**: [Coil](https://coil-kt.github.io/coil/) (支持交叉淡入、本地音频嵌入封面解析)
-* **数据持久化**: [Room](https://developer.android.com/training/data-storage/room)
-* **导航**: Jetpack Navigation Compose
+- **语言**: [Kotlin](https://kotlinlang.org/)
+- **UI**: [Jetpack Compose](https://developer.android.com/jetpack/compose) + Material 3
+- **导航**: Navigation Compose
+- **图片加载**: [Coil](https://coil-kt.github.io/coil/)
+- **文件导出/导入**: Android `DocumentFile` / SAF
+- **数据持久化**: 本地 JSON 文件存储
+- **音乐搜索补全**: 网易云音乐 API
 
 ---
 
-## 🚀 快速开始 (Quick Start)
+## 🚀 快速开始
 
-请前往 [Releases 页面](链接到你的Releases) 下载最新版本的 APK 文件进行安装。
+前往 [Releases](https://github.com/WatanabeChika/EarwormDiary/releases) 页面下载最新 APK 并安装。

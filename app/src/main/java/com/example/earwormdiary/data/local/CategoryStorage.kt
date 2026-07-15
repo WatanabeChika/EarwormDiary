@@ -16,6 +16,7 @@ object CategoryStorage {
                 val jsonObj = JSONObject().apply {
                     put("id", category.id)
                     put("name", category.name)
+                    put("archived", category.archived)
                 }
                 jsonArray.put(jsonObj)
             }
@@ -43,7 +44,8 @@ object CategoryStorage {
                 list.add(
                     Category(
                         id = obj.getString("id"),
-                        name = obj.getString("name")
+                        name = obj.getString("name"),
+                        archived = obj.optBoolean("archived", false)
                     )
                 )
             }

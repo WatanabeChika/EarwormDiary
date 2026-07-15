@@ -182,9 +182,17 @@ fun AppEntry() {
         CategoryStorage.saveCategories(context, newCategories)
     }
 
+    var selectedCategoryStatsId by remember { mutableStateOf<String?>(null) }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination?.route
     val showBottomBar = currentDestination == "today" || currentDestination == "calendar"
+
+    LaunchedEffect(currentDestination) {
+        if (currentDestination != "settings/category") {
+            selectedCategoryStatsId = null
+        }
+    }
 
     val topBarTitle = when {
         currentDestination == "today" -> "今日旋律"
@@ -197,11 +205,16 @@ fun AppEntry() {
         else -> "Daily Music"
     }
 
+    val displayTopBarTitle = when {
+        currentDestination == "settings/category" && selectedCategoryStatsId != null -> "类别统计"
+        else -> topBarTitle
+    }
+
     Scaffold(
         topBar = {
             if (currentDestination?.startsWith("selection") != true) {
                 TopAppBar(
-                    title = { Text(topBarTitle) },
+                    title = { Text(displayTopBarTitle) },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface,
                         titleContentColor = MaterialTheme.colorScheme.primary
@@ -211,7 +224,13 @@ fun AppEntry() {
                         if (currentDestination == "settings/library" ||
                             currentDestination == "settings/backup" ||
                             currentDestination == "settings/category") {
-                            IconButton(onClick = { navController.popBackStack() }) {
+                            IconButton(onClick = {
+                                if (currentDestination == "settings/category" && selectedCategoryStatsId != null) {
+                                    selectedCategoryStatsId = null
+                                } else {
+                                    navController.popBackStack()
+                                }
+                            }) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                             }
                         } else if (currentDestination == "settings") {
@@ -404,7 +423,13 @@ fun AppEntry() {
                     modifier = Modifier
                         .fillMaxSize()
                         .shadow(elevation = 16.dp)
-                        .onHorizontalSwipe(onSwipeRight = { navController.popBackStack() }),
+                        .onHorizontalSwipe(onSwipeRight = {
+                            if (selectedCategoryStatsId != null) {
+                                selectedCategoryStatsId = null
+                            } else {
+                                navController.popBackStack()
+                            }
+                        }),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     LibrarySettingsScreen(
@@ -445,7 +470,13 @@ fun AppEntry() {
                     modifier = Modifier
                         .fillMaxSize()
                         .shadow(elevation = 16.dp)
-                        .onHorizontalSwipe(onSwipeRight = { navController.popBackStack() }),
+                        .onHorizontalSwipe(onSwipeRight = {
+                            if (selectedCategoryStatsId != null) {
+                                selectedCategoryStatsId = null
+                            } else {
+                                navController.popBackStack()
+                            }
+                        }),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     DataBackupScreen(
@@ -483,11 +514,20 @@ fun AppEntry() {
                     modifier = Modifier
                         .fillMaxSize()
                         .shadow(elevation = 16.dp)
-                        .onHorizontalSwipe(onSwipeRight = { navController.popBackStack() }),
+                        .onHorizontalSwipe(onSwipeRight = {
+                            if (selectedCategoryStatsId != null) {
+                                selectedCategoryStatsId = null
+                            } else {
+                                navController.popBackStack()
+                            }
+                        }),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     CategoryManagementScreen(
                         categories = categories,
+                        records = records,
+                        selectedCategoryId = selectedCategoryStatsId,
+                        onSelectedCategoryIdChange = { selectedCategoryStatsId = it },
                         onCategoriesChanged = { updateCategories(it) }
                     )
                 }
@@ -663,7 +703,7 @@ fun Modifier.onHorizontalSwipe(
     onSwipeLeft: (() -> Unit)? = null,
     onSwipeRight: (() -> Unit)? = null,
     threshold: Float = 50f
-): Modifier = pointerInput(Unit) {
+): Modifier = pointerInput(onSwipeLeft, onSwipeRight, threshold) {
     awaitPointerEventScope {
         while (true) {
             val event = awaitPointerEvent()

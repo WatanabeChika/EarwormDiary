@@ -2,13 +2,25 @@ package com.example.earwormdiary.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,29 +37,20 @@ fun CategorySelectionDialog(
     onCategorySelected: (String?) -> Unit,
     onDismissRequest: () -> Unit
 ) {
+    val availableCategories = categories.filterNot { it.archived }
+
     AlertDialog(
         onDismissRequest = onDismissRequest,
         title = { Text("设置类别") },
         text = {
-            if (categories.isEmpty()) {
-                Text("暂无类别，请先去设置页添加。")
+            if (availableCategories.isEmpty()) {
+                Text("暂无可用类别，请先添加至少一个未归档类别。")
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.heightIn(max = 300.dp)
                 ) {
-                    // "无类别" 选项
-                    item {
-                        CategorySelectionItem(
-                            name = "无类别",
-                            color = Color.LightGray,
-                            isSelected = currentCategoryId == null,
-                            onClick = { onCategorySelected(null) }
-                        )
-                    }
-
-                    // 类别列表
-                    items(categories) { category ->
+                    items(availableCategories) { category ->
                         CategorySelectionItem(
                             name = category.name,
                             color = getCategoryColor(category.id),
@@ -95,7 +98,11 @@ fun CategorySelectionItem(
         )
 
         if (isSelected) {
-            Icon(Icons.Default.Check, contentDescription = "已选", tint = MaterialTheme.colorScheme.primary)
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "已选择",
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
