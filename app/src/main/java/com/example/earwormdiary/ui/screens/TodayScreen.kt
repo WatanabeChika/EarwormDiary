@@ -274,7 +274,7 @@ fun TodayDetailView(
                 onClick = onReplaceClick
             )
 
-            if (record.canAddMore) {
+            if (record.canAddMore && record.entries.none { it.song.isNone }) {
                 ActionButton(
                     text = "添加",
                     icon = Icons.Default.Add,

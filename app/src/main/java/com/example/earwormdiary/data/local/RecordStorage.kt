@@ -7,6 +7,7 @@ import com.example.earwormdiary.data.model.Category
 import com.example.earwormdiary.data.model.DailyRecord
 import com.example.earwormdiary.data.model.LocalSong
 import com.example.earwormdiary.data.model.RecordEntry
+import com.example.earwormdiary.data.model.RemoteSongSource
 import com.example.earwormdiary.utils.loadMusicFromCache
 import org.json.JSONArray
 import org.json.JSONObject
@@ -110,11 +111,13 @@ object RecordStorage {
 
                         val uriStr = entry.song.uri.toString()
                         val artStr = entry.song.albumArtUri.toString()
+                        val remoteSource = entry.song.remoteSource
+                        val remoteId = entry.song.displayRemoteId
 
                         when {
-                            uriStr.startsWith("http") || artStr.startsWith("http") -> {
-                                put("sourceType$suffix", "NETEASE")
-                                put("remoteId$suffix", entry.song.id)
+                            !remoteSource.isNullOrBlank() || uriStr.startsWith("http") || artStr.startsWith("http") -> {
+                                put("sourceType$suffix", remoteSource ?: RemoteSongSource.NETEASE)
+                                put("remoteId$suffix", remoteId ?: entry.song.id.toString())
                                 put("uri$suffix", uriStr)
                                 put("albumArtUri$suffix", artStr)
                             }
@@ -221,10 +224,18 @@ object RecordStorage {
             put("uri", song.uri.toString())
             put("albumArtUri", song.albumArtUri.toString())
             put("lastModified", song.lastModified)
+            if (!song.remoteSource.isNullOrBlank()) {
+                put("remoteSource", song.remoteSource)
+            }
+            if (!song.remoteId.isNullOrBlank()) {
+                put("remoteId", song.remoteId)
+            }
         }
     }
 
     private fun songFromJson(songObj: JSONObject): LocalSong {
+        val remoteSource = songObj.optString("remoteSource").ifBlank { null }
+        val remoteId = songObj.optString("remoteId").ifBlank { null }
         return LocalSong(
             id = songObj.getLong("id"),
             title = songObj.getString("title"),
@@ -232,7 +243,9 @@ object RecordStorage {
             albumId = songObj.getLong("albumId"),
             uri = songObj.getString("uri").toUri(),
             albumArtUri = songObj.getString("albumArtUri").toUri(),
-            lastModified = songObj.optLong("lastModified", 0L)
+            lastModified = songObj.optLong("lastModified", 0L),
+            remoteSource = remoteSource,
+            remoteId = remoteId
         )
     }
 
@@ -310,16 +323,23 @@ object RecordStorage {
         }
 
         val suffix = exportFieldSuffix(songIndex)
-        return when (obj.optString("sourceType$suffix", "")) {
-            "NETEASE" -> {
+        val sourceType = obj.optString("sourceType$suffix", "")
+        val remoteId = obj.optString("remoteId$suffix").ifBlank { null }
+        return when (sourceType) {
+            RemoteSongSource.NETEASE,
+            RemoteSongSource.NETEASE_PODCAST,
+            RemoteSongSource.QQ_MUSIC -> {
+                val resolvedRemoteId = remoteId ?: obj.optLong("remoteId$suffix", 0L).takeIf { it != 0L }?.toString()
                 LocalSong(
-                    id = obj.optLong("remoteId$suffix", 0L),
+                    id = resolvedRemoteId?.toLongOrNull() ?: resolvedRemoteId?.hashCode()?.toLong() ?: 0L,
                     title = title,
                     artist = artist.ifBlank { "Unknown" },
                     albumId = 0L,
                     uri = obj.optString("uri$suffix", "").toUri(),
                     albumArtUri = obj.optString("albumArtUri$suffix", "").toUri(),
-                    lastModified = System.currentTimeMillis()
+                    lastModified = System.currentTimeMillis(),
+                    remoteSource = sourceType,
+                    remoteId = resolvedRemoteId
                 )
             }
             "NONE" -> LocalSong.createNone()

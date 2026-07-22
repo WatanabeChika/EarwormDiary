@@ -571,7 +571,7 @@ fun AppEntry() {
                                 EDIT_MODE_ADD -> {
                                     if (currentRecord == null) {
                                         DailyRecord.single(targetDate, song)
-                                    } else if (currentRecord.canAddMore) {
+                                    } else if (currentRecord.canAddMore && currentRecord.entries.none { it.song.isNone }) {
                                         currentRecord.addSong(song)
                                     } else {
                                         currentRecord

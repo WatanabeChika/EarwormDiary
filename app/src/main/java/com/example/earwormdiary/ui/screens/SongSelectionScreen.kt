@@ -2,7 +2,18 @@ package com.example.earwormdiary.ui.screens
 
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,8 +22,21 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,11 +46,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.earwormdiary.data.model.LocalSong
+import com.example.earwormdiary.data.model.RemoteSongSource
 import com.example.earwormdiary.data.network.NeteaseApi
+import com.example.earwormdiary.data.network.QqMusicApi
 import com.example.earwormdiary.ui.components.AlbumCover
 import com.example.earwormdiary.utils.loadMusicFromCache
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+
+private const val ONLINE_RESULT_LIMIT = 20
+
+private enum class OnlineSearchProvider(
+    val label: String,
+    val loadingLabel: String,
+    val idHint: String
+) {
+    NETEASE(
+        label = "网易云音乐",
+        loadingLabel = "正在连接网易云音乐...",
+        idHint = "没找到的话，可直接输入网易云歌曲或播客 ID 进行精确匹配。"
+    ),
+    QQ_MUSIC(
+        label = "QQ 音乐",
+        loadingLabel = "正在连接 QQ 音乐...",
+        idHint = "没找到的话，可直接输入 QQ 音乐歌曲 ID 进行精确匹配。"
+    )
+}
+
+private data class NetworkSearchResult(
+    val songs: List<LocalSong>,
+    val idMatchedKeys: Set<String>
+)
 
 @Composable
 fun SongSelectionView(
@@ -46,8 +97,8 @@ fun SongSelectionView(
     var networkSongs by remember { mutableStateOf<List<LocalSong>>(emptyList()) }
     var isSearchingNetwork by remember { mutableStateOf(false) }
     var hasSearchedNetwork by remember { mutableStateOf(false) }
-
-    var idSearchResultId by remember { mutableStateOf<Long?>(null) }
+    var idMatchedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedProvider by remember { mutableStateOf<OnlineSearchProvider?>(null) }
 
     var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
@@ -58,8 +109,8 @@ fun SongSelectionView(
         try {
             allSongs = loadMusicFromCache(context)
             filteredSongs = allSongs.filterNot { excludedSongKeys.contains(songSelectionKey(it)) }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (exception: Exception) {
+            exception.printStackTrace()
         } finally {
             isLoading = false
         }
@@ -68,7 +119,8 @@ fun SongSelectionView(
     LaunchedEffect(searchQuery, allSongs, excludedSongKeys) {
         hasSearchedNetwork = false
         networkSongs = emptyList()
-        idSearchResultId = null
+        idMatchedKeys = emptySet()
+        selectedProvider = null
 
         filteredSongs = if (searchQuery.isBlank()) {
             allSongs.filterNot { excludedSongKeys.contains(songSelectionKey(it)) }
@@ -82,44 +134,44 @@ fun SongSelectionView(
         }
     }
 
-    fun performNetworkSearch() {
-        if (searchQuery.isBlank()) return
+    fun performNetworkSearch(provider: OnlineSearchProvider) {
+        val query = searchQuery.trim()
+        if (query.isBlank()) return
 
         isSearchingNetwork = true
-        idSearchResultId = null
+        idMatchedKeys = emptySet()
+        selectedProvider = provider
 
         scope.launch {
-            // 检查是否是纯数字 ID
-            val isNumericId = searchQuery.all { it.isDigit() }
-
-            // 使用 async 并发执行，提高速度
-            val searchDeferred = async { NeteaseApi.searchOnline(searchQuery) }
-            val idDeferred = if (isNumericId) async { NeteaseApi.getSongDetail(searchQuery) } else null
-
-            val searchResults = searchDeferred.await().toMutableList()
-            val idResult = idDeferred?.await()
-
-            // 如果 ID 搜索有结果，将其置顶
-            if (idResult != null) {
-                // 移除搜索结果中可能存在的重复项
-                searchResults.removeIf { it.id == idResult.id }
-                // 插入到第一位
-                searchResults.add(0, idResult)
-                // 记录 ID 以便 UI 渲染时高亮
-                idSearchResultId = idResult.id
+            val result = when (provider) {
+                OnlineSearchProvider.NETEASE -> searchNetease(query)
+                OnlineSearchProvider.QQ_MUSIC -> searchQqMusic(query)
             }
 
-            networkSongs = searchResults.filterNot { excludedSongKeys.contains(songSelectionKey(it)) }
+            val visibleSongs = result.songs
+                .filterNot { excludedSongKeys.contains(songSelectionKey(it)) }
+                .take(ONLINE_RESULT_LIMIT)
+            val visibleMatchKeys = visibleSongs
+                .map(::networkSongKey)
+                .filter(result.idMatchedKeys::contains)
+                .toSet()
+
+            networkSongs = visibleSongs
+            idMatchedKeys = visibleMatchKeys
             isSearchingNetwork = false
             hasSearchedNetwork = true
 
-            if (networkSongs.isEmpty()) {
+            if (visibleSongs.isEmpty()) {
                 Toast.makeText(context, "未找到相关网络歌曲", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 16.dp)
@@ -156,7 +208,6 @@ fun SongSelectionView(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    // 1. & 2. (无选项 和 纯文字选项)
                     if (allowNoneSelection) {
                         item(key = "special_none") {
                             SongListItem(
@@ -178,96 +229,145 @@ fun SongSelectionView(
                         }
                     }
 
-                    // 3. 本地结果
                     if (filteredSongs.isNotEmpty()) {
-                        item {
-                            Text("本地结果", style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp))
+                        item("local_header") {
+                            Text(
+                                text = "本地结果",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp)
+                            )
                         }
-                        items(filteredSongs, key = { it.id }) { song ->
+                        items(filteredSongs, key = ::songItemStableKey) { song ->
                             SongListItem(song = song, onClick = { onSongSelected(song) })
                         }
                     }
 
-                    // 4. 联网搜索逻辑
                     if (searchQuery.isNotBlank()) {
-                        item {
+                        item("network_divider") {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         }
 
                         if (!hasSearchedNetwork && !isSearchingNetwork) {
-                            // A. 显示“启用联网检索”按钮
-                            item {
-                                Surface(
-                                    onClick = { performNetworkSearch() },
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
+                            item("network_search_action") {
+                                val visibleProviders = selectedProvider?.let(::listOf) ?: OnlineSearchProvider.entries
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(Icons.Default.Cloud, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            "联网搜索:  \"$searchQuery\"",
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                    visibleProviders.forEach { provider ->
+                                        Surface(
+                                            onClick = { performNetworkSearch(provider) },
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(16.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Cloud,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "${provider.label}搜索",
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         } else if (isSearchingNetwork) {
-                            // B. 正在加载
-                            item {
+                            item("network_loading") {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("正在连接网易云音乐...", color = Color.Gray)
+                                    Text(
+                                        text = selectedProvider?.loadingLabel.orEmpty(),
+                                        color = Color.Gray
+                                    )
                                 }
                             }
-                        } else if (networkSongs.isNotEmpty()) {
-                            // C. 显示网络结果
-                            item {
-                                Text("网络结果 (网易云音乐)", style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp))
+                        } else {
+                            item("network_header") {
+                                Text(
+                                    text = "网络结果（${selectedProvider?.label.orEmpty()}）",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp)
+                                )
                             }
 
-                            items(networkSongs, key = { "net_${it.id}" }) { song ->
-                                // 判断是否是 ID 精确匹配的结果，如果是，显示特殊标签
-                                val isIdMatch = idSearchResultId == song.id
-
-                                Column {
-                                    if (isIdMatch) {
-                                        // ID 匹配指示器
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Link,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "ID 精确匹配: ${song.id}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-
-                                    SongListItem(
-                                        song = song,
-                                        onClick = { onSongSelected(song) },
-                                        backgroundColor = if (isIdMatch) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else Color.Transparent
+                            if (networkSongs.isEmpty()) {
+                                item("network_empty") {
+                                    Text(
+                                        text = "没有找到结果",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
                                     )
+                                }
+                            } else {
+                                items(networkSongs, key = ::songItemStableKey) { song ->
+                                    val isIdMatch = networkSongKey(song) in idMatchedKeys
+
+                                    Column {
+                                        if (isIdMatch) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Link,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = preciseMatchLabel(song),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+
+                                        SongListItem(
+                                            song = song,
+                                            onClick = { onSongSelected(song) },
+                                            backgroundColor = if (isIdMatch) {
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
+                                            } else {
+                                                Color.Transparent
+                                            }
+                                        )
+                                    }
+                                }
+
+                                if (idMatchedKeys.isEmpty()) {
+                                    item("network_id_hint") {
+                                        Text(
+                                            text = selectedProvider?.idHint.orEmpty(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.Gray,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -278,7 +378,6 @@ fun SongSelectionView(
     }
 }
 
-// SongListItem 增加 backgroundColor 参数以支持高亮
 @Composable
 fun SongListItem(
     song: LocalSong,
@@ -338,6 +437,62 @@ fun SongListItem(
     }
 }
 
+private suspend fun searchNetease(query: String): NetworkSearchResult = coroutineScope {
+    val keywordSearch = async { NeteaseApi.searchSongs(query, ONLINE_RESULT_LIMIT) }
+    val exactSong = if (looksLikeNeteaseId(query)) async { NeteaseApi.getSongDetail(query) } else null
+    val exactPodcast = if (looksLikeNeteaseId(query)) async { NeteaseApi.getPodcastDetail(query) } else null
+
+    val exactMatches = buildList {
+        exactSong?.await()?.let(::add)
+        exactPodcast?.await()?.let(::add)
+    }
+    val mergedSongs = dedupeNetworkSongs(exactMatches + keywordSearch.await())
+
+    NetworkSearchResult(
+        songs = mergedSongs,
+        idMatchedKeys = exactMatches.map(::networkSongKey).toSet()
+    )
+}
+
+private suspend fun searchQqMusic(query: String): NetworkSearchResult = coroutineScope {
+    val keywordSearch = async { QqMusicApi.searchSongs(query, ONLINE_RESULT_LIMIT) }
+    val exactSong = if (looksLikeQqMusicId(query)) async { QqMusicApi.getSongDetail(query) } else null
+
+    val exactMatches = listOfNotNull(exactSong?.await())
+    val mergedSongs = dedupeNetworkSongs(exactMatches + keywordSearch.await())
+
+    NetworkSearchResult(
+        songs = mergedSongs,
+        idMatchedKeys = exactMatches.map(::networkSongKey).toSet()
+    )
+}
+
+private fun dedupeNetworkSongs(songs: List<LocalSong>): List<LocalSong> {
+    val seenKeys = mutableSetOf<String>()
+    return songs.filter { song -> seenKeys.add(networkSongKey(song)) }
+}
+
+private fun preciseMatchLabel(song: LocalSong): String {
+    val remoteId = song.displayRemoteId ?: song.id.toString()
+    return when (song.remoteSource) {
+        RemoteSongSource.NETEASE -> "网易云歌曲 ID 精确匹配: $remoteId"
+        RemoteSongSource.NETEASE_PODCAST -> "网易云播客 ID 精确匹配: $remoteId"
+        RemoteSongSource.QQ_MUSIC -> "QQ 音乐 ID 精确匹配: $remoteId"
+        else -> "ID 精确匹配: $remoteId"
+    }
+}
+
+private fun looksLikeNeteaseId(query: String): Boolean {
+    return query.all(Char::isDigit)
+}
+
+private fun looksLikeQqMusicId(query: String): Boolean {
+    val trimmed = query.trim()
+    return trimmed.length in 8..20 &&
+        trimmed.all { it.isLetterOrDigit() } &&
+        trimmed.any { it.isLetter() }
+}
+
 private fun songSelectionKey(song: LocalSong): String {
     return when {
         song.isNone -> "none"
@@ -348,4 +503,19 @@ private fun songSelectionKey(song: LocalSong): String {
             "song:$normalizedTitle::$normalizedArtist"
         }
     }
+}
+
+private fun songItemStableKey(song: LocalSong): String {
+    return when {
+        song.isNone -> "special:none"
+        song.isText -> "special:text:${song.title.trim().lowercase()}"
+        song.isRemote -> networkSongKey(song)
+        else -> "local:${song.id}:${song.uri}"
+    }
+}
+
+private fun networkSongKey(song: LocalSong): String {
+    val source = song.remoteSource ?: "REMOTE"
+    val remoteId = song.displayRemoteId ?: song.id.toString()
+    return "$source:$remoteId"
 }

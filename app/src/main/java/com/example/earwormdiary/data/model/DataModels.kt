@@ -1,8 +1,14 @@
 package com.example.earwormdiary.data.model
 
 import android.net.Uri
-import java.time.LocalDate
 import androidx.core.net.toUri
+import java.time.LocalDate
+
+object RemoteSongSource {
+    const val NETEASE = "NETEASE"
+    const val NETEASE_PODCAST = "NETEASE_PODCAST"
+    const val QQ_MUSIC = "QQ_MUSIC"
+}
 
 data class LocalSong(
     val id: Long,
@@ -11,18 +17,27 @@ data class LocalSong(
     val albumId: Long,
     val uri: Uri,
     val albumArtUri: Uri,
-    val lastModified: Long = 0L
+    val lastModified: Long = 0L,
+    val remoteSource: String? = null,
+    val remoteId: String? = null
 ) {
-    // 辅助属性：判断是否是“无”记录
     val isNone: Boolean
         get() = uri.toString() == "app://none"
 
-    // 辅助属性：判断是否是“纯文字”记录
     val isText: Boolean
         get() = uri.toString() == "app://text"
 
+    val isRemote: Boolean
+        get() = !remoteSource.isNullOrBlank() || albumArtUri.toString().startsWith("http")
+
+    val displayRemoteId: String?
+        get() = when {
+            remoteId.isNullOrBlank() && isRemote -> id.toString()
+            remoteId.isNullOrBlank() -> null
+            else -> remoteId
+        }
+
     companion object {
-        // 创建一个“无”记录
         fun createNone(): LocalSong {
             return LocalSong(
                 id = -1L,
@@ -34,10 +49,9 @@ data class LocalSong(
             )
         }
 
-        // 创建一个“纯文字”记录
         fun createText(text: String): LocalSong {
             return LocalSong(
-                id = text.hashCode().toLong(), // 用文字哈希做ID
+                id = text.hashCode().toLong(),
                 title = text,
                 artist = "无",
                 albumId = -1L,

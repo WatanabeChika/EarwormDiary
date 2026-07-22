@@ -806,7 +806,7 @@ fun DetailArea(
                         }
                     )
 
-                    if (record.canAddMore) {
+                    if (record.canAddMore && record.entries.none { it.song.isNone }) {
                         CalendarActionButton(
                             text = "添加",
                             icon = Icons.Default.Add,
