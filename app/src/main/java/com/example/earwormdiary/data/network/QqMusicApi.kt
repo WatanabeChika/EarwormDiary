@@ -111,7 +111,7 @@ object QqMusicApi {
         }
         val openBracketIndex = trimmed.indexOf('(')
         val closeBracketIndex = trimmed.lastIndexOf(')')
-        return if (openBracketIndex > 0 && closeBracketIndex > openBracketIndex) {
+        return if (openBracketIndex in 1..<closeBracketIndex) {
             trimmed.substring(openBracketIndex + 1, closeBracketIndex)
         } else {
             trimmed
